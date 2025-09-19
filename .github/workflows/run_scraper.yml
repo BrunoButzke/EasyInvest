@@ -1,0 +1,49 @@
+name: Run FII Scraper
+
+# Controles de quando o workflow será executado
+on:
+  # Permite que você rode este workflow manualmente pela aba "Actions" do GitHub
+  workflow_dispatch:
+  
+  # Roda automaticamente em um agendamento (cron)
+  schedule:
+    # Roda de hora em hora, entre 12:00 e 21:00 UTC (09:00 - 18:00 BRT)
+    - cron: '0 12-21 * * *'
+
+jobs:
+  scrape:
+    # O tipo de máquina virtual para rodar o job
+    runs-on: ubuntu-latest
+
+    # Passos que o job vai executar
+    steps:
+      # 1. Baixa o seu código do repositório para a máquina virtual
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      # 2. Configura o ambiente Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12' # Usa a mesma versão que estávamos usando
+
+      # 3. Instala as dependências do Python
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r algoritmo/requirements.txt
+
+      # 4. Instala as dependências do sistema para o Selenium/Chrome
+      - name: Install system dependencies for Selenium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      # 5. Roda o script de scraping
+      - name: Run the scraper script
+        # Passa os segredos do GitHub como variáveis de ambiente para o script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SCRAPE_URL: ${{ secrets.SCRAPE_URL }}
+        run: python3 algoritmo/scraper.py
