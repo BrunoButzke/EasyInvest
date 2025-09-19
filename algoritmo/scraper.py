@@ -55,8 +55,10 @@ def scrape_with_precise_steps():
         # Clicar no <label> é mais robusto do que no <input> escondido
         todos_label_xpath = "//label[@for='colunas-ranking__todos']"
         print(f"Procurando e clicando no label: {todos_label_xpath}")
-        todos_button = wait.until(EC.element_to_be_clickable((By.XPATH, todos_label_xpath)))
-        todos_button.click()
+        # Usamos presence_of_element_located porque o clique via JS não exige que o elemento esteja visível
+        todos_button = wait.until(EC.presence_of_element_located((By.XPATH, todos_label_xpath)))
+        # Usamos execute_script para um clique mais robusto que não é bloqueado por outros elementos
+        driver.execute_script("arguments[0].click();", todos_button)
         
         # --- 6. Pausa para a tabela recarregar ---
         print("Aguardando 5 segundos para a tabela recarregar com todas as colunas...")
