@@ -6,14 +6,20 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from supabase import create_client, Client
+from dotenv import load_dotenv
 import os
 import time
+
+# Carrega as variáveis de ambiente do arquivo .env (se ele existir)
+# Isso é útil para o desenvolvimento local.
+load_dotenv()
 
 def scrape_with_precise_steps():
     """
     Executa a sequência exata de operações com pausas generosas em modo visível.
     """
-    url = "https://www.fundsexplorer.com.br/ranking"
+    # Busca a URL da variável de ambiente, com um valor padrão para fallback
+    url = os.environ.get("SCRAPE_URL")
     
     options = webdriver.ChromeOptions()
     options.add_argument("--start-maximized")
@@ -129,11 +135,16 @@ def clean_and_convert(value_str, to_int=False):
 def save_to_supabase(headers, rows):
     """Salva os dados extraídos em uma tabela do Supabase."""
     
-    # É uma boa prática guardar credenciais em variáveis de ambiente
-    # mas para este exemplo, usaremos os valores diretamente.
-    url = "https://afprdmpecdsziovajwqs.supabase.co"
-    key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmcHJkbXBlY2RzemlvdmFqd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyOTM0ODcsImV4cCI6MjA3Mzg2OTQ4N30.HxcvJaKf11_wO2I70LgjQmTxKFYrymdC1bXp9C-ESIo"
+    # Busca as credenciais das variáveis de ambiente (mais seguro)
+    # No GitHub, elas serão configuradas como "Secrets"
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
     table_name = "ranking_fiis"
+
+    if not url or not key:
+        print("Credenciais do Supabase (SUPABASE_URL, SUPABASE_KEY) não encontradas.")
+        print("O script não pode continuar sem as credenciais.")
+        return
 
     try:
         supabase: Client = create_client(url, key)
