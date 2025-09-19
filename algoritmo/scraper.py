@@ -5,6 +5,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from supabase import create_client, Client
 import os
 import time
 
@@ -59,9 +60,17 @@ def scrape_with_precise_steps():
         print("Extraindo dados da tabela...")
         table_body = wait.until(EC.presence_of_element_located((By.TAG_NAME, 'tbody')))
         
+        # Extração de cabeçalho mais robusta
         header_elements = driver.find_elements(By.XPATH, '//thead/tr/th')
-        headers = [header.text.strip() for header in header_elements]
+        # Usamos get_attribute("textContent") que é mais confiável que .text
+        headers = [header.get_attribute("textContent").strip() for header in header_elements]
         
+        # --- DEBUGGING DE CABEÇALHOS ---
+        print("\n--- CABEÇALHOS EXTRAÍDOS DO SITE ---")
+        print(headers)
+        print("-------------------------------------\n")
+        # --- FIM DEBUGGING ---
+
         rows = []
         tr_elements = table_body.find_elements(By.TAG_NAME, 'tr')
         
@@ -100,6 +109,124 @@ def generate_html(headers, rows):
     html_content += "</table></div></body></html>"
     return html_content
 
+def clean_and_convert(value_str, to_int=False):
+    """Converte um valor em string para numérico, com opção para inteiro."""
+    if value_str is None or value_str.strip() in ('', '--', 'N/A'):
+        return None
+    
+    cleaned_str = value_str.replace('R$', '').replace('%', '').strip()
+    cleaned_str = cleaned_str.replace('.', '')
+    cleaned_str = cleaned_str.replace(',', '.')
+
+    try:
+        float_val = float(cleaned_str)
+        if to_int:
+            return int(float_val)
+        return float_val
+    except ValueError:
+        return value_str
+
+def save_to_supabase(headers, rows):
+    """Salva os dados extraídos em uma tabela do Supabase."""
+    
+    # É uma boa prática guardar credenciais em variáveis de ambiente
+    # mas para este exemplo, usaremos os valores diretamente.
+    url = "https://afprdmpecdsziovajwqs.supabase.co"
+    key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFmcHJkbXBlY2RzemlvdmFqd3FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyOTM0ODcsImV4cCI6MjA3Mzg2OTQ4N30.HxcvJaKf11_wO2I70LgjQmTxKFYrymdC1bXp9C-ESIo"
+    table_name = "ranking_fiis"
+
+    try:
+        supabase: Client = create_client(url, key)
+    except Exception as e:
+        print(f"Erro ao conectar ao Supabase: {e}")
+        return
+
+    # Mapeamento explícito dos cabeçalhos do site para as colunas do DB
+    header_map = {
+        'Fundos': 'fundos', 'Setor': 'setor', 'Preço Atual (R$)': 'preco_atual_rs',
+        'Liquidez Diária (R$)': 'liquidez_diaria_rs', 'P/VP': 'p_vp', 'Último Dividendo': 'ultimo_dividendo',
+        'Dividend Yield': 'dividend_yield', 'DY (3M) Acumulado': 'dy_3m_acumulado',
+        'DY (6M) Acumulado': 'dy_6m_acumulado', 'DY (12M) Acumulado': 'dy_12m_acumulado',
+        'DY (3M) média': 'dy_3m_media', 'DY (6M) média': 'dy_6m_media',
+        'DY (12M) média': 'dy_12m_media', 'DY Ano': 'dy_ano', 'Variação Preço': 'variacao_preco',
+        'Rentab. Período': 'rentab_periodo', 'Rentab. Acumulada': 'rentab_acumulada',
+        'Patrimônio Líquido': 'patrimonio_liquido', 'VPA': 'vpa', 'P/VPA': 'p_vpa',
+        'DY Patrimonial': 'dy_patrimonial', 'Variação Patrimonial': 'variacao_patrimonial',
+        'Rentab. Patr. Período': 'rentab_patr_periodo', 'Rentab. Patr. Acumulada': 'rentab_patr_acumulada',
+        'Quant. Ativos': 'quant_ativos', 'Volatilidade': 'volatilidade', 'Num. Cotistas': 'num_cotistas',
+        'Tax. Gestão': 'tax_gestao', 'Tax. Performance': 'tax_performance', 'Tax. Administração': 'tax_administracao'
+    }
+
+    sanitized_headers = [header_map.get(h) for h in headers]
+    
+    # --- DEBUGGING ---
+    print(f"\n--- INÍCIO DA DEPURAÇÃO DE DADOS ---")
+    print(f"Total de cabeçalhos mapeados: {len(sanitized_headers)}")
+    if rows:
+        print(f"Total de células na primeira linha de dados: {len(rows[0])}")
+        print(f"Conteúdo da primeira linha (bruto): {rows[0]}")
+    print(f"--- FIM DA DEPURAÇÃO DE DADOS ---\n")
+    # --- FIM DEBUGGING ---
+
+    integer_columns = {'quant_ativos', 'num_cotistas'}
+    
+    numeric_columns = {
+        'preco_atual_rs', 'liquidez_diaria_rs', 'p_vp', 'ultimo_dividendo',
+        'patrimonio_liquido', 'vpa', 'p_vpa', 'dividend_yield', 'dy_3m_acumulado',
+        'dy_6m_acumulado', 'dy_12m_acumulado', 'dy_3m_media', 'dy_6m_media',
+        'dy_12m_media', 'dy_ano', 'dy_patrimonial', 'variacao_preco',
+        'rentab_periodo', 'rentab_acumulada', 'variacao_patrimonial',
+        'rentab_patr_periodo', 'rentab_patr_acumulada', 'volatilidade'
+    }
+
+    records_to_upsert = []
+    for row in rows:
+        record = {}
+        # Ignora linhas que não tem o mesmo número de colunas que o cabeçalho
+        if len(row) != len(sanitized_headers):
+            continue
+            
+        for header, value in zip(sanitized_headers, row):
+            if not header: # Pula se o cabeçalho não foi mapeado
+                continue
+            if header in integer_columns:
+                record[header] = clean_and_convert(value, to_int=True)
+            elif header in numeric_columns:
+                record[header] = clean_and_convert(value)
+            else:
+                record[header] = value if value.strip() not in ('', '--', 'N/A') else None
+        
+        # Garante que a chave primária não seja nula
+        if record.get('fundos'):
+            records_to_upsert.append(record)
+
+    if not records_to_upsert:
+        print("Nenhum dado válido para ser salvo no banco.")
+        return
+
+    print("\n--- INÍCIO DA INTERAÇÃO COM O SUPABASE ---")
+    print(f"Primeiro registro a ser enviado (exemplo): {records_to_upsert[0]}")
+
+    try:
+        print(f"Enviando {len(records_to_upsert)} registros para o Supabase (tabela: {table_name})...")
+        response = supabase.table(table_name).upsert(records_to_upsert).execute()
+        
+        # O Supabase não retorna um erro em caso de falha, então verificamos a resposta
+        if hasattr(response, 'data') and response.data:
+            print("Dados salvos no Supabase com sucesso!")
+            print(f"Resposta do Supabase (primeiro item): {response.data[0]}")
+        else:
+            print("O Supabase não retornou dados de sucesso. Verifique se a tabela e as permissões estão corretas.")
+            if hasattr(response, 'error') and response.error:
+                print(f"Detalhe do erro do Supabase: {response.error}")
+            else:
+                print(f"Resposta completa (sem dados): {response}")
+
+    except Exception as e:
+        print(f"Ocorreu uma exceção CRÍTICA ao salvar dados no Supabase: {e}")
+    
+    print("--- FIM DA INTERAÇÃO COM O SUPABASE ---\n")
+
 def main():
     headers, rows = scrape_with_precise_steps()
     if headers and rows:
@@ -114,6 +241,10 @@ def main():
             print(f"Você pode abri-lo em: file://{abs_path}")
         except IOError as e:
             print(f"Erro ao salvar o arquivo HTML: {e}")
+        
+        # Após gerar o HTML, salva no Supabase
+        save_to_supabase(headers, rows)
+        
     else:
         print("Processo finalizado sem extração de dados.")
 
