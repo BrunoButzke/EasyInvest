@@ -16,15 +16,25 @@ load_dotenv()
 
 def scrape_with_precise_steps():
     """
-    Executa a sequência exata de operações com pausas generosas em modo visível.
+    Executa a sequência exata de operações com pausas generosas.
+    Adapta-se para rodar em modo headless no GitHub Actions.
     """
     # Busca a URL da variável de ambiente, com um valor padrão para fallback
-    url = os.environ.get("SCRAPE_URL")
+    url = os.environ.get("SCRAPE_URL", "https://www.fundsexplorer.com.br/ranking")
     
     options = webdriver.ChromeOptions()
-    options.add_argument("--start-maximized")
-    # Muda a estratégia de carregamento da página
     options.page_load_strategy = 'eager'
+
+    # Detecta se está rodando em um ambiente de CI (Continuous Integration) como o GitHub Actions
+    if os.environ.get("CI") == "true":
+        print("--- Rodando em modo CI (Headless) ---")
+        options.add_argument('--headless=new')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument("--disable-gpu")
+    else:
+        print("--- Rodando em modo Local (Visual) ---")
+        options.add_argument("--start-maximized")
     
     service = Service(ChromeDriverManager().install())
     
