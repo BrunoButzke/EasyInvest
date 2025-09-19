@@ -54,8 +54,10 @@ def scrape_with_precise_steps():
         # --- 3. Clicar no botão de colunas ---
         button_id = "colunas-ranking__select-button"
         print(f"Procurando e clicando no ID: '{button_id}'")
-        select_button = wait.until(EC.element_to_be_clickable((By.ID, button_id)))
-        select_button.click()
+        # Usamos presence_of_element_located porque o clique via JS não exige visibilidade total
+        select_button = wait.until(EC.presence_of_element_located((By.ID, button_id)))
+        # Usamos execute_script para o clique mais robusto
+        driver.execute_script("arguments[0].click();", select_button)
 
         # --- 4. Pausa ---
         print("Aguardando 1 segundo...")
